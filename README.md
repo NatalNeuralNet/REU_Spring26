@@ -40,6 +40,7 @@ git clone https://github.com/polyanskiy/refractiveindex.info-database.git refrac
   - ### Windows (PowerShell)
 ```bash
 cd C:\Users\YOUR_USERNAME\REU_Spring26
+python -m venv .venv
 .venv\Scripts\activate.bat
 ```
   - ### macOS/Linux
