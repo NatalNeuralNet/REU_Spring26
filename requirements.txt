@@ -1,0 +1,6 @@
+streamlit
+pandas
+math
+cmath
+numpy
+path
