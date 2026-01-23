@@ -4,198 +4,13 @@ from refractiveindex import RefractiveIndexMaterial
 import pandas as pd
 import math, cmath
 import numpy as np
-
-# Local database root (yours)
-DB_ROOT = Path(r"C:\Users\arnol\.refractiveindex.info-database")
-NK_ROOT = DB_ROOT / "data-nk"   # n-k database folder
-
-
-# Functions. ----> move to new file in the future
-
-# ---- Build dropdown options from local folder structure ----
-@st.cache_resource
-def build_tree():
-    """
-    Returns:
-      shelves: sorted list
-      books_by_shelf: dict shelf -> sorted list of books
-      pages_by_shelf_book: dict (shelf, book) -> sorted list of pages
-    Expected paths: data-nk/<shelf>/<book>/<page>.yml
-    Example: data-nk/main/Si/Aspnes.yml  -> shelf=main book=Si page=Aspnes
-    """
-    books_by_shelf = {}
-    pages_by_shelf_book = {}
-
-    if not NK_ROOT.exists():
-        raise FileNotFoundError(f"Missing folder: {NK_ROOT} (do you have data-nk in the DB?)")
-
-    for shelf_dir in NK_ROOT.iterdir():
-        if not shelf_dir.is_dir():
-            continue
-        shelf = shelf_dir.name
-        books = []
-
-        for book_dir in shelf_dir.iterdir():
-            if not book_dir.is_dir():
-                continue
-            book = book_dir.name
-            books.append(book)
-
-            pages = sorted([p.stem for p in book_dir.glob("*.yml")])
-            pages_by_shelf_book[(shelf, book)] = pages
-
-        books_by_shelf[shelf] = sorted(books)
-
-    shelves = sorted(books_by_shelf.keys())
-    return shelves, books_by_shelf, pages_by_shelf_book
+import matplotlib.pyplot as plt
+from physics_functions import *
+from display_functions import *
 
 
-# -------------------------------------------
-# Helpers for build/display of table
-# -------------------------------------------
-@st.cache_data(show_spinner=False)
-def cached_build_tree():
-    return build_tree()
 
-@st.cache_data(show_spinner=False)
-def cached_get_nk(shelf: str, book: str, page: str, wavelength_nm: float):
-    mat = RefractiveIndexMaterial(shelf=shelf, book=book, page=page)
-    n = mat.get_refractive_index(wavelength_nm)
-    try:
-        k = mat.get_extinction_coefficient(wavelength_nm)
-        err = ""
-    except Exception as ke:
-        k = None
-        err = f"k failed: {type(ke).__name__}"
-    
-    n = round(float(n), 4)
-    k = round(float(k), 4)
-    N = (complex(n, k))
-         
-    return n, k, N, err
-
-def empty_row(layer_num: int):
-    return {
-        "layer": layer_num,
-        "shelf": None,
-        "book": None,
-        "page": None,
-        "n": None,
-        "k": None,
-        "N": None,
-        "error": ""
-    }
-
-def ensure_state(max_layers: int):
-    if "layer_rows" not in st.session_state:
-        st.session_state.layer_rows = {}
-    if "current_layer" not in st.session_state:
-        st.session_state.current_layer = 1
-
-    # keep only coating layers 1..max_layers
-    st.session_state.layer_rows = {
-        k: v for k, v in st.session_state.layer_rows.items() if 1 <= k <= max_layers
-    }
-
-    if max_layers <= 0:
-        st.session_state.current_layer = 1
-    else:
-        st.session_state.current_layer = max(1, min(st.session_state.current_layer, max_layers))
-
-def is_saved(layer_num: int) -> bool:
-    return layer_num in st.session_state.layer_rows
-
-def medium_row(medium: str):
-    medium_l = medium.lower()
-
-    if medium_l == "vacuum":
-        n0 = 1.0
-    else:  # "air"
-        n0 = 1.0
-
-    N = complex(n0,0)
-    return {
-        "layer": 0,
-        "shelf": None,
-        "book": medium_l,
-        "page": None,
-        "n": N.real,
-        "k": N.imag,
-        "N": N,
-        "error": ""
-    }
-
-
-def glass_row(layer_num: int, wavelength_nm: float):
-    # Fixed substrate: BK7 glass (common default)
-    # Adjust these if your database uses different keys.
-    shelf, book, page = "3d", "glass", "BK7"
-
-    try:
-        n, k, N, err = cached_get_nk(shelf, book, page, wavelength_nm)
-    except Exception as e:
-        n, k, N, err = None, None, None, f"glass failed: {type(e).__name__}"
-
-    return {
-        "layer": layer_num,
-        "shelf": shelf,
-        "book": book,
-        "page": page,
-        "n": n,
-        "k": k,
-        "N": N,
-        "error": err
-    }
-
-def build_display_table(max_layers: int, medium: str, wavelength_nm: float):
-    rows = []
-    rows.append(medium_row(medium))
-
-    # coating layers 1..max_layers
-    for layer_num in range(1, max_layers + 1):
-        rows.append(st.session_state.layer_rows.get(layer_num, empty_row(layer_num)))
-
-    # last row: glass substrate
-    rows.append(glass_row(max_layers + 1, wavelength_nm))
-    return rows
-
-# Fresnel for theta in radians (complex ok)
-def fresnel_RT_rad(N1, N2, theta1):
-    sin1 = cmath.sin(theta1)
-    cos1 = cmath.cos(theta1)
-
-    sin2 = (N1 / N2) * sin1
-    theta2 = cmath.asin(sin2)
-    cos2 = cmath.cos(theta2)
-    #theta2 = complex(round(theta2.real, 4), round(theta2.imag, 4))
-
-    r_s = (N1 * cos1 - N2 * cos2) / (N1 * cos1 + N2 * cos2)
-    r_p = (N2 * cos1 - N1 * cos2) / (N2 * cos1 + N1 * cos2)
-
-    t_s = (2 * N1 * cos1) / (N1 * cos1 + N2 * cos2)
-    t_p = (2 * N1 * cos1) / (N2 * cos1 + N1 * cos2)
-
-    R_s = abs(r_s) ** 2
-    R_p = abs(r_p) ** 2
-
-    denom = (N1 * cos1).real
-    if abs(denom) < 1e-15:
-        T_s = float("nan")
-        T_p = float("nan")
-    else:
-        factor = (N2 * cos2).real / denom
-        T_s = factor * abs(t_s) ** 2
-        T_p = factor * abs(t_p) ** 2
-
-    return {
-        "theta2": theta2,
-        "Runpol": 0.5 * (R_s + R_p),
-        "Tunpol": 0.5 * (T_s + T_p),
-        "Rs": R_s, "Rp": R_p, "Ts": T_s, "Tp": T_p,
-    }
-def round_complex(z, nd=4):
-    return complex(round(z.real, nd), round(z.imag, nd))
-
+# Interpretation: currently have per-interface phase shifts, but not propagation phase through a finite-thickness layer, which is what creates interference.
 
 # -----------------------------
 # App UI
@@ -210,7 +25,11 @@ with col2:
     wavelength_nm = st.number_input("Wavelength (nm)", value=550.0, step=1.0)
 with col3:
     max_layers = st.slider("Max coating layers", min_value=0, max_value=10, value=3, step=1)
-
+col4, col5 = st.columns(2)    
+with col4:
+    substrate = st.selectbox("Substrate", ["Glass"])    
+with col5:
+    substrate_depth = st.number_input("Substrate Depth", value=100, step = 1)     
 shelves, books_by_shelf, pages_by_shelf_book = cached_build_tree()
 ensure_state(max_layers)
 
@@ -343,10 +162,11 @@ table_rows = build_display_table(max_layers, medium, wavelength_nm)
 df = pd.DataFrame(table_rows)
 st.dataframe(df, use_container_width=True)
 
+#Real
 theta0_deg = 45
 theta0_rad = math.radians(theta0_deg)
 
-theta0_deg = 45
+# Complex
 theta0 = complex(math.radians(theta0_deg), 0.0)
 
 #theta2 = complex(round(theta2.real, 4), round(theta2.imag, 4))
@@ -406,6 +226,8 @@ for i in range(len(N_list) - 1):
         "Runpol_real": out_r["Runpol"],
         "Rs_real": out_r["Rs"],
         "Rp_real": out_r["Rp"],
+        "phi_rs_deg": math.degrees(out_c["phi_rs"]),
+        "phi_rp_deg": math.degrees(out_c["phi_rp"]),
     })
 
     transmission_rows.append({
@@ -416,6 +238,8 @@ for i in range(len(N_list) - 1):
         "Tunpol_real": out_r["Tunpol"],
         "Ts_real": out_r["Ts"],
         "Tp_real": out_r["Tp"],
+        "phi_ts_deg": math.degrees(out_c["phi_ts"]),
+        "phi_tp_deg": math.degrees(out_c["phi_tp"]),
     })
 
 st.subheader("Interface results")
@@ -425,7 +249,6 @@ st.dataframe(pd.DataFrame(reflectivity_rows), use_container_width=True)
 st.subheader("Transmission")
 st.dataframe(pd.DataFrame(transmission_rows), use_container_width=True)
 
-import matplotlib.pyplot as plt
 
 # ---------------------------------------
 # Plot: points in (n,k) across the stack
