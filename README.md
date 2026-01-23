@@ -28,6 +28,8 @@ An interactive Streamlit app for exploring optical thin films using real materia
 ### 1) Clone the repo
 ```bash
 git clone https://github.com/NatalNeuralNet/REU_Spring26
+```
+```bash
 cd REU_Spring26
 ```
 ---
@@ -40,12 +42,18 @@ git clone https://github.com/polyanskiy/refractiveindex.info-database.git refrac
   - ### Windows (PowerShell)
 ```bash
 cd C:\Users\YOUR_USERNAME\REU_Spring26
+```
+```bash
 python -m venv .venv
-.venv\Scripts\activate.bat
+```
+```bash
+.\.venv\Scripts\Activate.ps1
 ```
   - ### macOS/Linux
 ```bash
 python -m venv .venv
+```
+```bash
 source .venv/bin/activate
 ```
 ### 3) Install dependencies
